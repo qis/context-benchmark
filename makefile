@@ -14,8 +14,8 @@ SOURCES	!= find src -type f -name '*.h' -or -name '*.cpp'
 
 all: debug
 
-run: build/llvm/debug/CMakeCache.txt
-	@cd build/llvm/debug && cmake --build . --target $(PROJECT) && ./$(PROJECT)
+run: build/llvm/release/CMakeCache.txt
+	@cd build/llvm/release && cmake --build . --target $(PROJECT) && ./$(PROJECT)
 
 dbg: build/llvm/debug/CMakeCache.txt
 	@cd build/llvm/debug && cmake --build . --target $(PROJECT) && $(SYSDBG) ./$(PROJECT)

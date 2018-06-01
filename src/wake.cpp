@@ -64,7 +64,7 @@ public:
       }
 
       // Handle n entries.
-      for (auto last = next->next.load(std::memory_order_relaxed); last;) {
+      for (auto last = next->next.load(std::memory_order_relaxed); last; last = last->next.load(std::memory_order_relaxed)) {
         tail = next;
         next = last;
       }
