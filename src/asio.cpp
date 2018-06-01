@@ -57,6 +57,7 @@ task coro(boost::asio::io_context& c0, boost::asio::io_context& c1, benchmark::S
   co_return;
 }
 
+#if 1
 static void asio(benchmark::State& state) noexcept {
   boost::asio::io_context c0{ 1 };
   boost::asio::io_context c1{ 1 };
@@ -71,5 +72,6 @@ static void asio(benchmark::State& state) noexcept {
   t1.join();
 }
 BENCHMARK(asio)->Threads(1);
+#endif
 
 }  // namespace

@@ -108,6 +108,7 @@ task coro(context& c0, context& c1, benchmark::State& state) noexcept {
   co_return;
 }
 
+#if 1
 static void iocp(benchmark::State& state) noexcept {
   context c0;
   context c1;
@@ -121,7 +122,7 @@ static void iocp(benchmark::State& state) noexcept {
   t0.join();
   t1.join();
 }
-
 BENCHMARK(iocp)->Threads(1);
+#endif
 
 }  // namespace

@@ -35,7 +35,7 @@ file(GLOB sources src/asio.cpp src/mutex.cpp src/main.cpp)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX src FILES ${sources})
 
 if(WIN32)
-  file(GLOB native src/iocp.cpp)
+  file(GLOB native src/iocp.cpp src/wake.cpp)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   file(GLOB native src/epoll.cpp)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
@@ -49,6 +49,10 @@ endif()
 
 add_executable(${PROJECT_NAME} ${sources})
 target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_BINARY_DIR} src)
+
+if(WIN32)
+  target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32 mswsock synchronization)
+endif()
 
 if(UNIX)
   find_package(Threads REQUIRED)

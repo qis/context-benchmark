@@ -1,8 +1,7 @@
+#include <windows.h>
 #include <benchmark/benchmark.h>
 #include <atomic>
-#include <condition_variable>
 #include <experimental/coroutine>
-#include <mutex>
 #include <thread>
 
 namespace {
@@ -37,12 +36,11 @@ private:
 class context {
 public:
   void run() noexcept {
-    std::unique_lock<std::mutex> lock(mutex_);
-    lock.unlock();
+    int compare = 0;
     while (!stop_) {
-      lock.lock();
-      cv_.wait(lock, []() { return true; });
-      lock.unlock();
+      if (!WaitOnAddress(&trigger_, &compare, sizeof(trigger_), INFINITE)) {
+        continue;
+      }
 
       // Handle empty list.
       const auto head = head_.exchange(nullptr, std::memory_order_acquire);
@@ -77,7 +75,7 @@ public:
 
   void stop() noexcept {
     stop_ = true;
-    cv_.notify_one();
+    trigger_ = 1;
   }
 
   void post(event* ev) noexcept {
@@ -85,7 +83,7 @@ public:
     do {
       ev->next = head;
     } while (!head_.compare_exchange_weak(head, ev, std::memory_order_release, std::memory_order_acquire));
-    cv_.notify_one();
+    trigger_ = 1;
   }
 
   void post(event* beg, event* end) noexcept {
@@ -93,14 +91,13 @@ public:
     do {
       end->next = head;
     } while (!head_.compare_exchange_weak(head, beg, std::memory_order_release, std::memory_order_acquire));
-    cv_.notify_one();
+    trigger_ = 1;
   }
 
 private:
   std::atomic_bool stop_ = false;
   std::atomic<event*> head_ = nullptr;
-  std::condition_variable cv_;
-  std::mutex mutex_;
+  int trigger_ = 0;
 };
 
 class schedule : public event {
@@ -136,7 +133,7 @@ task coro(context& c0, context& c1, benchmark::State& state) noexcept {
 }
 
 #if 1
-static void mutex(benchmark::State& state) noexcept {
+static void wake(benchmark::State& state) noexcept {
   context c0;
   context c1;
   coro(c0, c1, state);
@@ -149,7 +146,7 @@ static void mutex(benchmark::State& state) noexcept {
   t0.join();
   t1.join();
 }
-BENCHMARK(mutex)->Threads(1);
+BENCHMARK(wake)->Threads(1);
 #endif
 
 }  // namespace
