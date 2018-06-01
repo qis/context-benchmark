@@ -1,0 +1,15 @@
+# Hidden Files
+.*
+!.clang-format
+!.gitattributes
+!.gitignore
+
+# Build Files
+/build/
+
+# Install Files
+/bin/
+
+# Application
+/*.core
+/core
