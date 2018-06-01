@@ -40,13 +40,12 @@ public:
     std::unique_lock<std::mutex> lock(mutex_);
     lock.unlock();
     while (!stop_) {
-      lock.lock();
-      cv_.wait(lock, []() { return true; });
-      lock.unlock();
-
       // Handle empty list.
       const auto head = head_.exchange(nullptr, std::memory_order_acquire);
       if (!head) {
+        lock.lock();
+        cv_.wait(lock, []() { return true; });
+        lock.unlock();
         continue;
       }
 

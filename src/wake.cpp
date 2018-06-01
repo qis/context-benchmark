@@ -38,10 +38,10 @@ public:
   void run() noexcept {
     int compare = 0;
     while (!stop_) {
-      if (!WaitOnAddress(&trigger_, &compare, sizeof(trigger_), INFINITE)) {
-        continue;
+      if (trigger_ == compare) {
+        WaitOnAddress(&trigger_, &compare, sizeof(trigger_), INFINITE);
+        trigger_ = compare;
       }
-      trigger_ = compare;
 
       // Handle empty list.
       const auto head = head_.exchange(nullptr, std::memory_order_acquire);

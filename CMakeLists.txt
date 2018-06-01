@@ -31,11 +31,11 @@ endif()
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 set_property(GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER build)
 
-file(GLOB sources src/asio.cpp src/mutex.cpp src/main.cpp)
+file(GLOB sources src/asio.cpp src/mutex.cpp src/spinlock.cpp src/main.cpp)
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/src PREFIX src FILES ${sources})
 
 if(WIN32)
-  file(GLOB native src/iocp.cpp src/wake.cpp)
+  file(GLOB native src/iocp.cpp src/wake.cpp src/semaphore/win32.cpp)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   file(GLOB native src/epoll.cpp src/futex.cpp)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "FreeBSD")
