@@ -44,7 +44,7 @@ public:
   void run() noexcept {
     int compare = 0;
     while (!stop_) {
-      sys_futex(&trigger_, FUTEX_WAIT, compare, nullptr, nullptr, 0);
+      sys_futex(&trigger_, FUTEX_WAIT_PRIVATE, compare, nullptr, nullptr, 0);
       trigger_ = compare;
 
       // Handle empty list.
@@ -81,7 +81,7 @@ public:
   void stop() noexcept {
     stop_ = true;
     trigger_ = 1;
-    sys_futex(&trigger_, FUTEX_WAKE, 1, nullptr, nullptr, 0);
+    sys_futex(&trigger_, FUTEX_WAKE_PRIVATE, 1, nullptr, nullptr, 0);
   }
 
   void post(event* ev) noexcept {
@@ -90,7 +90,7 @@ public:
       ev->next = head;
     } while (!head_.compare_exchange_weak(head, ev, std::memory_order_release, std::memory_order_acquire));
     trigger_ = 1;
-    sys_futex(&trigger_, FUTEX_WAKE, 1, nullptr, nullptr, 0);
+    sys_futex(&trigger_, FUTEX_WAKE_PRIVATE, 1, nullptr, nullptr, 0);
   }
 
   void post(event* beg, event* end) noexcept {
@@ -99,7 +99,7 @@ public:
       end->next = head;
     } while (!head_.compare_exchange_weak(head, beg, std::memory_order_release, std::memory_order_acquire));
     trigger_ = 1;
-    sys_futex(&trigger_, FUTEX_WAKE, 1, nullptr, nullptr, 0);
+    sys_futex(&trigger_, FUTEX_WAKE_PRIVATE, 1, nullptr, nullptr, 0);
   }
 
 private:
