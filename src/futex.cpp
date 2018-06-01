@@ -44,9 +44,9 @@ public:
   void run() noexcept {
     int compare = 0;
     while (!stop_) {
-      if (trigger_ == compare) {
+      if (trigger_.load(std::memory_order_relaxed) == compare) {
         sys_futex(&trigger_, FUTEX_WAIT_PRIVATE, compare, nullptr, nullptr, 0);
-        trigger_ = compare;
+        trigger_.store(compare, std::memory_order_release);
       }
 
       // Handle empty list.
@@ -82,7 +82,7 @@ public:
 
   void stop() noexcept {
     stop_ = true;
-    trigger_ = 1;
+    trigger_.store(1, std::memory_order_release);
     sys_futex(&trigger_, FUTEX_WAKE_PRIVATE, 1, nullptr, nullptr, 0);
   }
 
@@ -91,7 +91,7 @@ public:
     do {
       ev->next = head;
     } while (!head_.compare_exchange_weak(head, ev, std::memory_order_release, std::memory_order_acquire));
-    trigger_ = 1;
+    trigger_.store(1, std::memory_order_release);
     sys_futex(&trigger_, FUTEX_WAKE_PRIVATE, 1, nullptr, nullptr, 0);
   }
 
@@ -100,14 +100,14 @@ public:
     do {
       end->next = head;
     } while (!head_.compare_exchange_weak(head, beg, std::memory_order_release, std::memory_order_acquire));
-    trigger_ = 1;
+    trigger_.store(1, std::memory_order_release);
     sys_futex(&trigger_, FUTEX_WAKE_PRIVATE, 1, nullptr, nullptr, 0);
   }
 
 private:
   std::atomic_bool stop_ = false;
   std::atomic<event*> head_ = nullptr;
-  int trigger_ = 0;
+  volatile std::atomic<int> trigger_ = 0;
 };
 
 class schedule : public event {
