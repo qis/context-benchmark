@@ -4,6 +4,8 @@
 #include <experimental/coroutine>
 #include <thread>
 
+// TODO: This is probably wrong. Not sure if it's worth looking into.
+
 namespace {
 
 struct task {
