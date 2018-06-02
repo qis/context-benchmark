@@ -1,149 +1,70 @@
-#include <benchmark/benchmark.h>
-#include <atomic>
-#include <experimental/coroutine>
-#include <thread>
+#include <common.h>
 
 namespace {
 
-struct task {
-  struct promise_type {
-    task get_return_object() noexcept { return {}; }
-    constexpr std::experimental::suspend_never initial_suspend() noexcept { return {}; }
-    constexpr std::experimental::suspend_never final_suspend() noexcept { return {}; }
-    constexpr void return_void() noexcept {}
-    void unhandled_exception() noexcept {}
-  };
-};
-
-class event {
+class event : public basic_event {
 public:
-  event() noexcept = default;
-  virtual ~event() = default;
-
-  void resume() noexcept {
-    awaiter_.resume();
-  }
-
-protected:
-  std::experimental::coroutine_handle<> awaiter_;
-
-private:
-  friend class context;
   std::atomic<event*> next = nullptr;
 };
 
-class context {
+class context : public basic_context {
 public:
+  context(int = 1) noexcept {}
+
   void run() noexcept {
-    while (!stop_) {
-      // Handle empty list.
-      const auto head = head_.exchange(nullptr, std::memory_order_acquire);
+    const auto et = enable_thread();
+    while (true) {
+      auto head = head_.exchange(nullptr, std::memory_order_acquire);
       if (!head) {
-        while (!trigger_.exchange(false, std::memory_order_consume)) {
-          // spinlock
+        if (stop_.load(std::memory_order_acquire)) {
+          return;
         }
         continue;
       }
-
-      // Handle single entry.
       auto tail = head->next.load(std::memory_order_relaxed);
       if (!tail) {
         head->resume();
         continue;
       }
-
-      // Handle two entries.
       auto next = tail->next.load(std::memory_order_relaxed);
       if (!next) {
-        post(head);
+        repost(head, head);
         tail->resume();
         continue;
       }
-
-      // Handle n entries.
-      for (auto last = next->next.load(std::memory_order_relaxed); last; last = last->next.load(std::memory_order_relaxed)) {
+      for (auto last = next->next.load(std::memory_order_relaxed); last;) {
         tail = next;
         next = last;
+        last = last->next.load(std::memory_order_relaxed);
       }
-      post(head, tail);
+      repost(head, tail);
       next->resume();
     }
   }
 
   void stop() noexcept {
-    stop_ = true;
-    trigger_.store(true, std::memory_order_release);
+    stop_.store(true, std::memory_order_release);
   }
 
   void post(event* ev) noexcept {
     auto head = head_.load(std::memory_order_acquire);
     do {
-      ev->next = head;
+      ev->next.store(head, std::memory_order_relaxed);
     } while (!head_.compare_exchange_weak(head, ev, std::memory_order_release, std::memory_order_acquire));
-    trigger_.store(true, std::memory_order_release);
   }
 
-  void post(event* beg, event* end) noexcept {
+private:
+  void repost(event* beg, event* end) noexcept {
     auto head = head_.load(std::memory_order_acquire);
     do {
-      end->next = head;
+      end->next.store(head, std::memory_order_relaxed);
     } while (!head_.compare_exchange_weak(head, beg, std::memory_order_release, std::memory_order_acquire));
-    trigger_.store(true, std::memory_order_release);
   }
 
-private:
   std::atomic_bool stop_ = false;
   std::atomic<event*> head_ = nullptr;
-  std::atomic_bool trigger_ = false;
 };
 
-class schedule : public event {
-public:
-  schedule(context& context) noexcept : context_(context) {}
-
-  constexpr bool await_ready() const noexcept { return false; }
-
-  void await_suspend(std::experimental::coroutine_handle<> awaiter) noexcept {
-    awaiter_ = awaiter;
-    context_.post(this);
-  }
-
-  constexpr void await_resume() const noexcept {}
-
-private:
-  context& context_;
-};
-
-task coro(context& c0, context& c1, benchmark::State& state) noexcept {
-  bool first = true;
-  for (auto _ : state) {
-    if (first) {
-      co_await schedule{ c0 };
-    } else {
-      co_await schedule{ c1 };
-    }
-    first = !first;
-  }
-  c0.stop();
-  c1.stop();
-  co_return;
-}
-
-#if 1
-static void spinlock(benchmark::State& state) noexcept {
-  context c0;
-  context c1;
-  coro(c0, c1, state);
-  auto t0 = std::thread([&]() {
-    c0.run();
-  });
-  auto t1 = std::thread([&]() {
-    c1.run();
-  });
-  t0.join();
-  t1.join();
-}
-BENCHMARK(spinlock)->Threads(1);
-#endif
+CREATE_BENCHMARKS(spinlock, context, event);
 
 }  // namespace

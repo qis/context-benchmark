@@ -15,13 +15,16 @@ SOURCES	!= find src -type f -name '*.h' -or -name '*.cpp'
 all: debug
 
 run: build/llvm/release/CMakeCache.txt
-	@cd build/llvm/release && cmake --build . --target $(PROJECT) && ./$(PROJECT)
+	@cmake --build build/llvm/release --target $(PROJECT)
+	@build/llvm/release/$(PROJECT) #--benchmark_filter='futex*'
 
 dbg: build/llvm/debug/CMakeCache.txt
-	@cd build/llvm/debug && cmake --build . --target $(PROJECT) && $(SYSDBG) ./$(PROJECT)
+	@cmake --build build/llvm/debug --target $(PROJECT)
+	@$(SYSDBG) build/llvm/debug/$(PROJECT)
 
 test: build/llvm/debug/CMakeCache.txt
-	@cd build/llvm/debug && cmake --build . --target tests && ctest
+	@cmake --build build/llvm/debug --target tests
+	@cd build/llvm/debug && ctest
 
 install: release
 	@cmake --build build/llvm/release --target install

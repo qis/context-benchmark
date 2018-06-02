@@ -1,74 +1,61 @@
+#include <common.h>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <unistd.h>
-#include <benchmark/benchmark.h>
-#include <array>
-#include <experimental/coroutine>
-#include <thread>
 
-struct task {
-  struct promise_type {
-    task get_return_object() noexcept { return {}; }
-    constexpr std::experimental::suspend_never initial_suspend() noexcept { return {}; }
-    constexpr std::experimental::suspend_never final_suspend() noexcept { return {}; }
-    constexpr void return_void() noexcept {}
-    void unhandled_exception() noexcept {}
-  };
-};
+namespace {
 
-namespace epoll {
-
-class event {
+class context : public basic_context {
 public:
-  event() noexcept = default;
-  virtual ~event() = default;
-
-  void resume() noexcept {
-    awaiter_.resume();
-  }
-
-protected:
-  std::experimental::coroutine_handle<> awaiter_;
-};
-
-class context {
-public:
-  context() noexcept : handle_(epoll_create1(0)), events_(eventfd(0, EFD_NONBLOCK)) {
-    static epoll_event nev = { EPOLLONESHOT, {} };
-    epoll_ctl(handle_, EPOLL_CTL_ADD, events_, &nev);
+  context(int = 1) noexcept : handle_(::epoll_create1(0)), events_(::eventfd(0, EFD_NONBLOCK)) {
+    assert(handle_ != -1);
+    assert(events_ != -1);
+    epoll_event nev = { EPOLLONESHOT, {} };
+    [[maybe_unused]] const auto rv = ::epoll_ctl(handle_, EPOLL_CTL_ADD, events_, &nev);
+    assert(rv == 0);
   }
 
   ~context() {
-    close(events_);
-    close(handle_);
+    ::close(events_);
+    ::close(handle_);
   }
 
-  void run() noexcept {
-    bool running = true;
+  static constexpr bool concurrent_run_not_supported() noexcept {
+    return true;  // deadlocks on epoll_wait
+  }
+
+  void run() {
+    const auto et = enable_thread();
     std::array<epoll_event, 128> events;
-    while (running) {
-      const auto count = epoll_wait(handle_, events.data(), static_cast<int>(events.size()), -1);
+    const auto events_data = events.data();
+    const auto events_size = static_cast<int>(events.size());
+    while (true) {
+      const auto count = ::epoll_wait(handle_, events_data, events_size, -1);
       if (count < 0 && errno != EINTR) {
         break;
       }
-      for (int i = 0; i < count; i++) {
-        if (const auto ev = reinterpret_cast<event*>(events[static_cast<std::size_t>(i)].data.ptr)) {
+      for (auto i = 0; i < count; i++) {
+        if (const auto ev = reinterpret_cast<basic_event*>(events[static_cast<std::size_t>(i)].data.ptr)) {
           ev->resume();
-          continue;
+        } else {
+          return;
         }
-        running = false;
       }
     }
   }
 
   void stop() noexcept {
-    static epoll_event nev{ EPOLLOUT | EPOLLONESHOT, {} };
-    epoll_ctl(handle_, EPOLL_CTL_MOD, events_, &nev);
+    epoll_event nev{ EPOLLOUT | EPOLLONESHOT, {} };
+    [[maybe_unused]] const auto rv = ::epoll_ctl(handle_, EPOLL_CTL_MOD, events_, &nev);
+    assert(rv == 0);
   }
 
-  void post(event* ev) noexcept {
-    struct epoll_event nev{ EPOLLOUT | EPOLLONESHOT, { ev } };
-    epoll_ctl(handle_, EPOLL_CTL_MOD, events_, &nev);
+  void post(basic_event* ev) noexcept {
+    // clang-format off
+    epoll_event nev { EPOLLOUT | EPOLLONESHOT, { ev } };
+    // clang-format on
+    [[maybe_unused]] const auto rv = ::epoll_ctl(handle_, EPOLL_CTL_MOD, events_, &nev);
+    assert(rv == 0);
   }
 
 private:
@@ -76,52 +63,6 @@ private:
   int events_ = -1;
 };
 
-class schedule : public event {
-public:
-  schedule(context& context) noexcept : context_(context) {}
+CREATE_BENCHMARKS(epoll, context, basic_event);
 
-  constexpr bool await_ready() const noexcept { return false; }
-
-  void await_suspend(std::experimental::coroutine_handle<> awaiter) noexcept {
-    awaiter_ = awaiter;
-    context_.post(this);
-  }
-
-  constexpr void await_resume() const noexcept {}
-
-private:
-  context& context_;
-};
-
-task coro(context& c0, context& c1, benchmark::State& state) noexcept {
-  bool first = true;
-  for (auto _ : state) {
-    if (first) {
-      co_await schedule{ c0 };
-    } else {
-      co_await schedule{ c1 };
-    }
-    first = !first;
-  }
-  c0.stop();
-  c1.stop();
-  co_return;
-}
-
-static void epoll(benchmark::State& state) noexcept {
-  context c0;
-  context c1;
-  coro(c0, c1, state);
-  auto t0 = std::thread([&]() {
-    c0.run();
-  });
-  auto t1 = std::thread([&]() {
-    c1.run();
-  });
-  t0.join();
-  t1.join();
-}
-
-BENCHMARK(epoll)->Threads(1);
-
-}  // namespace epoll
+}  // namespace
