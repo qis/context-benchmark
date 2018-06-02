@@ -1,8 +1,14 @@
-#include <windows.h>
+#include <linux/futex.h>
+#include <sys/syscall.h>
+#include <sys/types.h>
+#include <unistd.h>
 #include <benchmark/benchmark.h>
 #include <atomic>
 #include <experimental/coroutine>
 #include <thread>
+
+#define sys_futex(uaddr, op, val, timeout, uaddr2, val3) \
+	syscall(SYS_futex, uaddr, op, val, timeout, uaddr2, val3)
 
 namespace {
 
@@ -37,11 +43,11 @@ class context {
 public:
   void run() noexcept {
     int compare = 0;
-    while (!stop_) {
-      if (!WaitOnAddress(&trigger_, &compare, sizeof(trigger_), INFINITE)) {
-        continue;
+    while (!stop_.load(std::memory_order_acquire)) {
+      if (trigger_.load(std::memory_order_relaxed) == compare) {
+        sys_futex(&trigger_, FUTEX_WAIT_PRIVATE, compare, nullptr, nullptr, 0);
+        trigger_.store(compare, std::memory_order_release);
       }
-      trigger_ = compare;
 
       // Handle empty list.
       const auto head = head_.exchange(nullptr, std::memory_order_acquire);
@@ -76,7 +82,8 @@ public:
 
   void stop() noexcept {
     stop_ = true;
-    trigger_ = 1;
+    trigger_.store(1, std::memory_order_release);
+    sys_futex(&trigger_, FUTEX_WAKE_PRIVATE, 1, nullptr, nullptr, 0);
   }
 
   void post(event* ev) noexcept {
@@ -84,7 +91,8 @@ public:
     do {
       ev->next = head;
     } while (!head_.compare_exchange_weak(head, ev, std::memory_order_release, std::memory_order_acquire));
-    trigger_ = 1;
+    trigger_.store(1, std::memory_order_release);
+    sys_futex(&trigger_, FUTEX_WAKE_PRIVATE, 1, nullptr, nullptr, 0);
   }
 
   void post(event* beg, event* end) noexcept {
@@ -92,13 +100,14 @@ public:
     do {
       end->next = head;
     } while (!head_.compare_exchange_weak(head, beg, std::memory_order_release, std::memory_order_acquire));
-    trigger_ = 1;
+    trigger_.store(1, std::memory_order_release);
+    sys_futex(&trigger_, FUTEX_WAKE_PRIVATE, 1, nullptr, nullptr, 0);
   }
 
 private:
   std::atomic_bool stop_ = false;
   std::atomic<event*> head_ = nullptr;
-  int trigger_ = 0;
+  volatile std::atomic<int> trigger_ = 0;
 };
 
 class schedule : public event {
@@ -133,8 +142,8 @@ task coro(context& c0, context& c1, benchmark::State& state) noexcept {
   co_return;
 }
 
-#if 0  // TODO
-static void semaphore(benchmark::State& state) noexcept {
+#if 1
+static void futex(benchmark::State& state) noexcept {
   context c0;
   context c1;
   coro(c0, c1, state);
@@ -147,7 +156,7 @@ static void semaphore(benchmark::State& state) noexcept {
   t0.join();
   t1.join();
 }
-BENCHMARK(semaphore)->Threads(1);
+BENCHMARK(futex)->Threads(1);
 #endif
 
 }  // namespace

@@ -33,15 +33,18 @@ private:
   std::atomic<event*> next = nullptr;
 };
 
+#if 0  // TODO
 class context {
 public:
+  context() noexcept : semaphore_(CreateSemaphore(nullptr, 0, 1, nullptr)) {}
+
   void run() noexcept {
     int compare = 0;
-    while (!stop_) {
-      if (trigger_.load(std::memory_order_relaxed) == compare) {
-        WaitOnAddress(&trigger_, &compare, sizeof(trigger_), INFINITE);
-        trigger_.store(compare, std::memory_order_release);
+    while (!stop_.load(std::memory_order_acquire)) {
+      if (!WaitOnAddress(&trigger_, &compare, sizeof(trigger_), INFINITE)) {
+        continue;
       }
+      trigger_ = compare;
 
       // Handle empty list.
       const auto head = head_.exchange(nullptr, std::memory_order_acquire);
@@ -76,7 +79,7 @@ public:
 
   void stop() noexcept {
     stop_ = true;
-    trigger_.store(1, std::memory_order_release);
+    ReleaseSemaphore(semaphore_, 1, nullptr);
   }
 
   void post(event* ev) noexcept {
@@ -84,7 +87,7 @@ public:
     do {
       ev->next = head;
     } while (!head_.compare_exchange_weak(head, ev, std::memory_order_release, std::memory_order_acquire));
-    trigger_.store(1, std::memory_order_release);
+    ReleaseSemaphore(semaphore_, 1, nullptr);
   }
 
   void post(event* beg, event* end) noexcept {
@@ -92,13 +95,13 @@ public:
     do {
       end->next = head;
     } while (!head_.compare_exchange_weak(head, beg, std::memory_order_release, std::memory_order_acquire));
-    trigger_.store(1, std::memory_order_release);
+    ReleaseSemaphore(semaphore_, 1, nullptr);
   }
 
 private:
   std::atomic_bool stop_ = false;
   std::atomic<event*> head_ = nullptr;
-  volatile std::atomic<int> trigger_ = 0;
+  HANDLE semaphore_ = nullptr;
 };
 
 class schedule : public event {
@@ -133,8 +136,7 @@ task coro(context& c0, context& c1, benchmark::State& state) noexcept {
   co_return;
 }
 
-#if 1
-static void wake(benchmark::State& state) noexcept {
+static void semaphore(benchmark::State& state) noexcept {
   context c0;
   context c1;
   coro(c0, c1, state);
@@ -147,7 +149,7 @@ static void wake(benchmark::State& state) noexcept {
   t0.join();
   t1.join();
 }
-BENCHMARK(wake)->Threads(1);
+BENCHMARK(semaphore)->Threads(1);
 #endif
 
 }  // namespace

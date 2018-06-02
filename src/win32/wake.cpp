@@ -1,14 +1,8 @@
-#include <linux/futex.h>
-#include <sys/syscall.h>
-#include <sys/types.h>
-#include <unistd.h>
+#include <windows.h>
 #include <benchmark/benchmark.h>
 #include <atomic>
 #include <experimental/coroutine>
 #include <thread>
-
-#define sys_futex(uaddr, op, val, timeout, uaddr2, val3) \
-	syscall(SYS_futex, uaddr, op, val, timeout, uaddr2, val3)
 
 namespace {
 
@@ -43,9 +37,9 @@ class context {
 public:
   void run() noexcept {
     int compare = 0;
-    while (!stop_) {
+    while (!stop_.load(std::memory_order_acquire)) {
       if (trigger_.load(std::memory_order_relaxed) == compare) {
-        sys_futex(&trigger_, FUTEX_WAIT_PRIVATE, compare, nullptr, nullptr, 0);
+        WaitOnAddress(&trigger_, &compare, sizeof(trigger_), INFINITE);
         trigger_.store(compare, std::memory_order_release);
       }
 
@@ -83,7 +77,6 @@ public:
   void stop() noexcept {
     stop_ = true;
     trigger_.store(1, std::memory_order_release);
-    sys_futex(&trigger_, FUTEX_WAKE_PRIVATE, 1, nullptr, nullptr, 0);
   }
 
   void post(event* ev) noexcept {
@@ -92,7 +85,6 @@ public:
       ev->next = head;
     } while (!head_.compare_exchange_weak(head, ev, std::memory_order_release, std::memory_order_acquire));
     trigger_.store(1, std::memory_order_release);
-    sys_futex(&trigger_, FUTEX_WAKE_PRIVATE, 1, nullptr, nullptr, 0);
   }
 
   void post(event* beg, event* end) noexcept {
@@ -101,7 +93,6 @@ public:
       end->next = head;
     } while (!head_.compare_exchange_weak(head, beg, std::memory_order_release, std::memory_order_acquire));
     trigger_.store(1, std::memory_order_release);
-    sys_futex(&trigger_, FUTEX_WAKE_PRIVATE, 1, nullptr, nullptr, 0);
   }
 
 private:
@@ -143,7 +134,7 @@ task coro(context& c0, context& c1, benchmark::State& state) noexcept {
 }
 
 #if 1
-static void futex(benchmark::State& state) noexcept {
+static void wake(benchmark::State& state) noexcept {
   context c0;
   context c1;
   coro(c0, c1, state);
@@ -156,7 +147,7 @@ static void futex(benchmark::State& state) noexcept {
   t0.join();
   t1.join();
 }
-BENCHMARK(futex)->Threads(1);
+BENCHMARK(wake)->Threads(1);
 #endif
 
 }  // namespace
